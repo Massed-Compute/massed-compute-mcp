@@ -1,0 +1,64 @@
+{
+  "name": "massed-compute-mcp",
+  "version": "1.0.2",
+  "description": "MCP server for the Massed Compute API.",
+  "license": "MIT",
+  "author": "Massed Compute",
+  "type": "module",
+  "mcpName": "io.github.Massed-Compute/mcp",
+  "main": "dist/cli.js",
+  "bin": {
+    "massed-compute-mcp": "./dist/cli.js"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": { "node": ">=20" },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "massed-compute",
+    "gpu",
+    "vm",
+    "claude",
+    "anthropic",
+    "ai"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Massed-Compute/massed-compute-mcp.git"
+  },
+  "homepage": "https://github.com/Massed-Compute/massed-compute-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Massed-Compute/massed-compute-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "sync-tools": "node ../../scripts/sync-tools.mjs",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run sync-tools",
+    "build": "npm run clean && tsc && cp src/tools-spec.json dist/tools-spec.json && cp ../../README.md README.md && cp ../../LICENSE LICENSE && chmod +x dist/cli.js",
+    "pretest": "npm run build",
+    "prepublishOnly": "npm run build && npm test",
+    "start": "node dist/cli.js server",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "msw": "^2",
+    "ts-node": "^10",
+    "typescript": "^5",
+    "vitest": "^1"
+  }
+}

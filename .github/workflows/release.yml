@@ -1,0 +1,66 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/node
+    environment: npm-publish
+    permissions:
+      # Provenance attestation needs id-token write.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: packages/node/package-lock.json
+      - run: npm ci
+      - run: npm test
+      # `npm publish` runs `prepublishOnly` which re-runs the build + tests,
+      # so the artifact we ship matches what we just tested.
+      - run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-pypi:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/python
+    # Trusted publishing (OIDC) is the recommended modern path — no PYPI_TOKEN
+    # secret needed. Configure once on pypi.org under "Publishing" for this
+    # package and the id-token: write permission below is all that's needed.
+    permissions:
+      id-token: write
+    environment: pypi-publish
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Sync tools.json + README + LICENSE into the Python package
+        working-directory: .
+        run: node scripts/sync-tools.mjs
+      - run: pip install --upgrade build
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/
+      - run: python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/python/dist/

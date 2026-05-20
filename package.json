@@ -1,0 +1,15 @@
+{
+  "name": "@massed-compute/mcp-monorepo",
+  "private": true,
+  "description": "Massed Compute MCP wrapper — monorepo root. Publishes packages/node (npm) and packages/python (pip) from a shared tools.json spec.",
+  "scripts": {
+    "sync-tools": "node scripts/sync-tools.mjs",
+    "build:node": "npm --prefix packages/node run build",
+    "test:node": "npm --prefix packages/node test",
+    "test:python": "cd packages/python && .venv/bin/pytest tests/",
+    "test:contract": "node scripts/contract-test.mjs",
+    "test": "npm run sync-tools && npm run test:node && npm run test:python && npm run test:contract"
+  },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}

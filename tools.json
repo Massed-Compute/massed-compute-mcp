@@ -1,0 +1,266 @@
+{
+  "$schema": "./tools.schema.json",
+  "specVersion": "1.0.0",
+  "description": "Single source of truth for the Massed Compute MCP tool catalog. Consumed by both the Node and Python wrapper packages at build time. Any change here must be propagated by running `npm run sync-tools` from the repo root before publishing.",
+  "tools": [
+    {
+      "name": "gpu_inventory_list",
+      "title": "List GPU inventory",
+      "description": "Retrieve the available GPU configurations, their specs, pricing, and current capacity by region. See https://vm-docs.massedcompute.com/api/v1 for the full response shape.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "annotations": {
+        "title": "List GPU inventory",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "GET", "path": "/api/v1/gpu-inventory" }
+    },
+    {
+      "name": "images_list",
+      "title": "List VM images",
+      "description": "Retrieve the catalog of preconfigured VM images available for deployment.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "annotations": {
+        "title": "List VM images",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "GET", "path": "/api/v1/images" }
+    },
+    {
+      "name": "instances_list",
+      "title": "List running instances",
+      "description": "Retrieve all running VM instances for the authenticated account. Sensitive credentials (e.g. cleartext VM password) are redacted in the response.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "annotations": {
+        "title": "List running instances",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "GET", "path": "/api/v1/instance" }
+    },
+    {
+      "name": "instances_get",
+      "title": "Get a running instance",
+      "description": "Retrieve a single running VM instance by its UUID. Sensitive credentials (e.g. cleartext VM password) are redacted in the response.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "uuid": { "type": "string", "description": "UUID of the running instance." }
+        },
+        "required": ["uuid"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Get a running instance",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "GET", "path": "/api/v1/instance/{id}", "pathParams": { "id": "uuid" } }
+    },
+    {
+      "name": "instances_launch",
+      "title": "Launch a new instance",
+      "description": "Deploy a new VM instance. Requires billing to be configured (recharge amount and threshold). This action incurs cost.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "imageId": { "type": "integer", "description": "ID of the VM image to deploy." },
+          "productName": { "type": "string", "description": "Product name of the GPU instance to deploy, e.g. 'gpu_1x_l40'." },
+          "regionName": { "type": "string", "description": "Region name. Use 'any' to let us choose." },
+          "instanceName": { "type": "string", "description": "Optional human-readable name for the instance." },
+          "coupon": { "type": "string", "description": "Optional coupon code to apply at deploy time." },
+          "command": { "type": "string", "description": "Optional startup command to run on boot." },
+          "sshKeys": { "type": "array", "items": { "type": "string" }, "description": "Optional list of SSH key names to attach to the instance." }
+        },
+        "required": ["imageId", "productName", "regionName"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Launch a new instance",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "upstream": { "method": "POST", "path": "/api/v1/instance/launch" }
+    },
+    {
+      "name": "instances_restart",
+      "title": "Restart instances",
+      "description": "Restart one or more running VM instances by UUID. The VM will be briefly unavailable during the reboot; data on the instance's disks is preserved.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "instanceUuids": { "type": "array", "items": { "type": "string" }, "description": "UUIDs of instances to restart." }
+        },
+        "required": ["instanceUuids"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Restart instances",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "upstream": { "method": "POST", "path": "/api/v1/instance/restart" }
+    },
+    {
+      "name": "instances_terminate",
+      "title": "Terminate instances",
+      "description": "Terminate one or more running VM instances by UUID. DESTRUCTIVE: this stops billing for the listed instances and permanently deletes their data; the action cannot be undone. Confirm with the user before invoking.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "instanceUuids": { "type": "array", "items": { "type": "string" }, "description": "UUIDs of instances to terminate." }
+        },
+        "required": ["instanceUuids"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Terminate instances",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "upstream": { "method": "POST", "path": "/api/v1/instance/terminate" }
+    },
+    {
+      "name": "coupon_information",
+      "title": "Get coupon information",
+      "description": "Look up information about a coupon by code.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "coupon": { "type": "string", "description": "Coupon code to look up." }
+        },
+        "required": ["coupon"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Get coupon information",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "POST", "path": "/api/v1/coupon/information" }
+    },
+    {
+      "name": "coupon_accepted_products",
+      "title": "List products a coupon is valid for",
+      "description": "Look up which products a coupon code can be applied to, with current inventory availability.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "coupon": { "type": "string", "description": "Coupon code to look up." }
+        },
+        "required": ["coupon"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "List products a coupon is valid for",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "POST", "path": "/api/v1/coupon/accepted-products" }
+    },
+    {
+      "name": "account_token_validation",
+      "title": "Validate API token",
+      "description": "Confirm that your Massed Compute API key is valid and active.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "annotations": {
+        "title": "Validate API token",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "POST", "path": "/api/v1/account/token/validation" }
+    },
+    {
+      "name": "account_billing",
+      "title": "Get account billing snapshot",
+      "description": "Retrieve billing settings for the account, including billing method and recharge configuration.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "annotations": {
+        "title": "Get account billing snapshot",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "GET", "path": "/api/v1/account/billing" }
+    },
+    {
+      "name": "ssh_keys_list",
+      "title": "List SSH keys",
+      "description": "List SSH keys associated with the authenticated account.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "annotations": {
+        "title": "List SSH keys",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "GET", "path": "/api/v1/ssh-keys" }
+    },
+    {
+      "name": "ssh_keys_create",
+      "title": "Add an SSH key",
+      "description": "Add a new SSH public key to the authenticated account.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "Name for the SSH key." },
+          "publicKey": { "type": "string", "description": "OpenSSH-format public key contents." }
+        },
+        "required": ["name", "publicKey"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Add an SSH key",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "upstream": { "method": "POST", "path": "/api/v1/ssh-keys" }
+    },
+    {
+      "name": "ssh_keys_delete",
+      "title": "Delete an SSH key",
+      "description": "Remove an SSH key from the account. DESTRUCTIVE: any instances relying on this key may lose access. Confirm with the user before invoking.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sshKeyId": { "type": "string", "description": "UUID of the SSH key to remove, as returned by `ssh_keys_list`." }
+        },
+        "required": ["sshKeyId"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Delete an SSH key",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "upstream": { "method": "DELETE", "path": "/api/v1/ssh-keys/{id}", "pathParams": { "id": "sshKeyId" } }
+    }
+  ]
+}
