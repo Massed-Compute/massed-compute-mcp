@@ -45,63 +45,10 @@ Open [vm.massedcompute.com/settings/api](https://vm.massedcompute.com/settings/a
 
 ### Step 2. Pick an install path
 
-<details open>
-<summary><b>Local CLI</b> — runs on your machine, key stored in your OS config dir</summary>
+- [Hosted endpoint](#hosted-endpoint) — point your client at the streamable-HTTP URL, zero install
+- [Local CLI](#local-cli) — runs on your machine, key stored in your OS config dir
 
-<br>
-
-Install via whichever ecosystem you prefer:
-
-```bash
-npm install -g massed-compute-mcp     # Node >= 20
-# or
-pip install massed-compute-mcp        # Python >= 3.10
-# or
-uv tool install massed-compute-mcp    # fast Python install via uv
-```
-
-Run one-shot setup:
-
-```bash
-massed-compute-mcp init
-```
-
-`init` prompts for the key, validates it upstream, stores it at `0600` (POSIX), detects installed MCP clients (Claude Code, Cursor, Claude Desktop, Codex), and offers to wire each one. A timestamped backup is taken before any client edit. Restart wired clients to pick up the tools.
-
-Config file location:
-
-- Linux: `$XDG_CONFIG_HOME/massed-compute/config.json` (falls back to `~/.config/...`)
-- macOS: `~/Library/Application Support/massed-compute/config.json`
-- Windows: `%APPDATA%\massed-compute\config.json`
-
-Non-interactive (CI / scripts):
-
-```bash
-# Key from env, auto-wire every detected client
-MASSED_COMPUTE_API_KEY=<your-key> massed-compute-mcp init --yes
-
-# Key from a file, wire only specific clients
-massed-compute-mcp init --token-file ~/keys/mc --yes --clients claude-code,cursor
-
-# Store the key only; don't touch any client config
-massed-compute-mcp init --yes --no-install-clients
-```
-
-Add or remove a client later:
-
-```bash
-massed-compute-mcp install-client cursor       # claude-desktop | codex | claude-code
-massed-compute-mcp uninstall-client cursor
-```
-
-`install-client` is idempotent — re-running when the entry already matches is a silent no-op.
-
-</details>
-
-<details>
-<summary><b>Hosted endpoint</b> — point your client at the streamable-HTTP URL, zero install</summary>
-
-<br>
+### Hosted endpoint
 
 Same 14 tools, same API key, nothing to install. Pick the snippet for your client:
 
@@ -154,7 +101,53 @@ Claude Desktop does not yet speak streamable-HTTP MCP, so use [`mcp-remote`](htt
 }
 ```
 
-</details>
+### Local CLI
+
+Install via whichever ecosystem you prefer:
+
+```bash
+npm install -g massed-compute-mcp     # Node >= 20
+# or
+pip install massed-compute-mcp        # Python >= 3.10
+# or
+uv tool install massed-compute-mcp    # fast Python install via uv
+```
+
+Run one-shot setup:
+
+```bash
+massed-compute-mcp init
+```
+
+`init` prompts for the key, validates it upstream, stores it at `0600` (POSIX), detects installed MCP clients (Claude Code, Cursor, Claude Desktop, Codex), and offers to wire each one. A timestamped backup is taken before any client edit. Restart wired clients to pick up the tools.
+
+Config file location:
+
+- Linux: `$XDG_CONFIG_HOME/massed-compute/config.json` (falls back to `~/.config/...`)
+- macOS: `~/Library/Application Support/massed-compute/config.json`
+- Windows: `%APPDATA%\massed-compute\config.json`
+
+Non-interactive (CI / scripts):
+
+```bash
+# Key from env, auto-wire every detected client
+MASSED_COMPUTE_API_KEY=<your-key> massed-compute-mcp init --yes
+
+# Key from a file, wire only specific clients
+massed-compute-mcp init --token-file ~/keys/mc --yes --clients claude-code,cursor
+
+# Store the key only; don't touch any client config
+massed-compute-mcp init --yes --no-install-clients
+```
+
+Add or remove a client later:
+
+```bash
+massed-compute-mcp install-client cursor       # claude-desktop | codex | claude-code
+massed-compute-mcp uninstall-client cursor
+```
+
+`install-client` is idempotent — re-running when the entry already matches is a silent no-op.
 
 ## Verifying the connection
 
