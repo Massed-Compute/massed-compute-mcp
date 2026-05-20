@@ -8,40 +8,49 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI 
 
 - [Overview](#overview)
 - [Installation](#installation)
-  - [Option A — Local CLI (npm / pip)](#option-a--local-cli-npm--pip)
-  - [Option B — Hosted endpoint (streamable HTTP)](#option-b--hosted-endpoint-streamable-http)
-  - [Choosing a path](#choosing-a-path)
 - [Verifying the connection](#verifying-the-connection)
-- [Tools](#tools)
 - [CLI reference](#cli-reference)
 - [Key resolution](#key-resolution)
-- [Security](#security)
-- [Repo layout](#repo-layout)
 - [Resources](#resources)
 - [License](#license)
 
 ## Overview
 
-- 14 tools covering GPU inventory, instance lifecycle, SSH-key management, billing, and coupons.
-- Two install paths: a local CLI that runs the server over stdio, or a hosted streamable-HTTP endpoint.
-- Read-only keys hide destructive tools from the catalog entirely.
-- Works with Claude Code, Claude Desktop, Cursor, and Codex.
+The server exposes 14 tools that map 1:1 to documented `/api/v1/*` endpoints — no internal services, no undocumented calls. Issue a read-only key for analysis-only assistants and destructive tools (launch, restart, terminate, SSH-key changes) are hidden from the catalog entirely. Works with Claude Code, Claude Desktop, Cursor, and Codex.
 
-Full docs: [vm-docs.massedcompute.com/docs/category/mcp](https://vm-docs.massedcompute.com/docs/category/mcp).
+| Tool | Required key | Returns |
+|---|---|---|
+| `gpu_inventory_list` | read-only | GPU configurations, pricing, regional capacity |
+| `images_list` | read-only | VM image catalog |
+| `instances_list` | read-only | Your running VM instances |
+| `instances_get` | read-only | A single instance by UUID |
+| `instances_launch` | full | Newly-launched instance details (incurs cost) |
+| `instances_restart` | full | Restart confirmation |
+| `instances_terminate` | full | Termination confirmation (destructive) |
+| `coupon_information` | read-only | Coupon discount terms |
+| `coupon_accepted_products` | read-only | Products a coupon applies to |
+| `account_token_validation` | read-only | Token validity status |
+| `account_billing` | read-only | Billing settings, recharge configuration |
+| `ssh_keys_list` | read-only | Your SSH keys |
+| `ssh_keys_create` | full | Newly-created key details |
+| `ssh_keys_delete` | full | Deletion confirmation (destructive) |
+
+Beyond raw tools, Massed Compute publishes [Agent Skills](https://vm-docs.massedcompute.com/docs/mcp/skills) — markdown workflow templates for common operations like GPU selection and cost auditing. Full docs at [vm-docs.massedcompute.com/docs/category/mcp](https://vm-docs.massedcompute.com/docs/category/mcp).
 
 ## Installation
 
-### Get your API key
+### Step 1. Get your API key
 
-1. Open [vm.massedcompute.com/settings/api](https://vm.massedcompute.com/settings/api).
-2. Create a key. Pick **read-only** for analysis-only assistants, or **full-access** to allow launch / restart / terminate / SSH-key changes.
-3. Copy it.
+Open [vm.massedcompute.com/settings/api](https://vm.massedcompute.com/settings/api), create a key (read-only for analysis-only assistants; full-access to allow launch / restart / terminate / SSH-key changes), copy it.
 
-### Option A — Local CLI (npm / pip)
+### Step 2. Pick an install path
 
-The CLI runs the server on your machine and talks to `https://vm.massedcompute.com/api/v1/*` directly. Your key is stored in your OS config dir (`0600` on POSIX), never written into the MCP client's config file.
+<details open>
+<summary><b>Local CLI</b> — runs on your machine, key stored in your OS config dir</summary>
 
-Install via whichever ecosystem you prefer — same binary name, same subcommands, same config location:
+<br>
+
+Install via whichever ecosystem you prefer:
 
 ```bash
 npm install -g massed-compute-mcp     # Node >= 20
@@ -57,7 +66,7 @@ Run one-shot setup:
 massed-compute-mcp init
 ```
 
-`init` prompts for the key, validates it upstream, stores it, detects installed MCP clients (Claude Code, Cursor, Claude Desktop, Codex), and offers to wire each one. A timestamped backup is taken before any client edit. Restart wired clients to pick up the new tools.
+`init` prompts for the key, validates it upstream, stores it at `0600` (POSIX), detects installed MCP clients (Claude Code, Cursor, Claude Desktop, Codex), and offers to wire each one. A timestamped backup is taken before any client edit. Restart wired clients to pick up the tools.
 
 Config file location:
 
@@ -65,7 +74,7 @@ Config file location:
 - macOS: `~/Library/Application Support/massed-compute/config.json`
 - Windows: `%APPDATA%\massed-compute\config.json`
 
-Non-interactive setup (CI / scripts):
+Non-interactive (CI / scripts):
 
 ```bash
 # Key from env, auto-wire every detected client
@@ -85,11 +94,16 @@ massed-compute-mcp install-client cursor       # claude-desktop | codex | claude
 massed-compute-mcp uninstall-client cursor
 ```
 
-`install-client` is idempotent — re-running when the entry already matches is a silent no-op with no backup file.
+`install-client` is idempotent — re-running when the entry already matches is a silent no-op.
 
-### Option B — Hosted endpoint (streamable HTTP)
+</details>
 
-Point your MCP client directly at the hosted server. Same 14 tools, same API key, nothing to install.
+<details>
+<summary><b>Hosted endpoint</b> — point your client at the streamable-HTTP URL, zero install</summary>
+
+<br>
+
+Same 14 tools, same API key, nothing to install. Pick the snippet for your client:
 
 **Claude Code**
 
@@ -140,15 +154,7 @@ Claude Desktop does not yet speak streamable-HTTP MCP, so use [`mcp-remote`](htt
 }
 ```
 
-### Choosing a path
-
-| Local CLI | Hosted endpoint |
-|---|---|
-| Key kept off the client config file | Zero install |
-| Works in air-gapped or proxied networks | Required for clients without stdio support |
-| Forkable and scriptable | Per-IP and per-user throttles applied at the edge |
-
-Both paths call the same documented `/api/v1/*` endpoints.
+</details>
 
 ## Verifying the connection
 
@@ -157,29 +163,6 @@ massed-compute-mcp doctor
 ```
 
 `doctor` confirms the stored key still works, prints the tool catalog, and shows copy-pasteable snippets for any clients you didn't auto-wire. Or just ask your assistant *"Validate my Massed Compute API key."* — a `{ message: "Valid Token" }` response confirms the wiring.
-
-## Tools
-
-| Tool | Required key | Returns |
-|---|---|---|
-| `gpu_inventory_list` | read-only | GPU configurations, pricing, regional capacity |
-| `images_list` | read-only | VM image catalog |
-| `instances_list` | read-only | Your running VM instances |
-| `instances_get` | read-only | A single instance by UUID |
-| `instances_launch` | full | Newly-launched instance details (incurs cost) |
-| `instances_restart` | full | Restart confirmation |
-| `instances_terminate` | full | Termination confirmation (destructive) |
-| `coupon_information` | read-only | Coupon discount terms |
-| `coupon_accepted_products` | read-only | Products a coupon applies to |
-| `account_token_validation` | read-only | Token validity status |
-| `account_billing` | read-only | Billing settings, recharge configuration |
-| `ssh_keys_list` | read-only | Your SSH keys |
-| `ssh_keys_create` | full | Newly-created key details |
-| `ssh_keys_delete` | full | Deletion confirmation (destructive) |
-
-Per-tool argument schemas are advertised by the server itself and rendered in your MCP client. For the full prose reference, see the [tool documentation](https://vm-docs.massedcompute.com/docs/category/mcp).
-
-Beyond raw tools, Massed Compute publishes [Agent Skills](https://vm-docs.massedcompute.com/docs/mcp/skills) — markdown workflow templates for common operations like GPU selection and cost auditing.
 
 ## CLI reference
 
@@ -205,30 +188,6 @@ When the server starts, the API key is taken from the first source that provides
 4. Stored config file written by `init`
 
 If none of those are set, the server exits non-zero with a pointer to `massed-compute-mcp init`. Override the upstream with `MASSED_COMPUTE_API_BASE_URL` (default `https://vm.massedcompute.com`).
-
-## Security
-
-- Key stored at mode `0600` inside a `0700` config directory on POSIX; user-profile ACLs on Windows.
-- Atomic config writes with `fsync` before `rename` and `O_NOFOLLOW` on POSIX.
-- Every upstream call has a 30s timeout and a 5 MiB response-body cap.
-- Spec validation rejects `..`, `./`, and `//` segments in tool paths.
-- The wrapper only calls documented `/api/v1/*` endpoints.
-- Issue a read-only key for any assistant that doesn't need to make changes — destructive tools return 403 and clients hide them entirely.
-
-## Repo layout
-
-```
-massed-compute-mcp/
-├── tools.json              # single source of truth - 14 tool definitions
-├── packages/
-│   ├── node/               # npm package (TypeScript)
-│   └── python/             # pip package (Python >= 3.10)
-└── scripts/
-    ├── sync-tools.mjs      # copies tools.json + README + LICENSE into each package
-    └── contract-test.mjs   # asserts both packages and the hosted endpoint agree
-```
-
-Node and Python ship identical UX — same subcommands, same env vars, same on-disk config schema. The contract test runs in CI and fails loudly if any implementation drifts.
 
 ## Resources
 
