@@ -1,6 +1,6 @@
 {
   "name": "massed-compute-mcp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "MCP server for the Massed Compute API.",
   "license": "MIT",
   "author": "Massed Compute",

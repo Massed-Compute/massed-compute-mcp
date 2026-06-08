@@ -1,4 +1,5 @@
 import type { ToolDef } from "./types.js";
+import { redactSensitive } from "./redact.js";
 
 export interface BuiltRequest {
   url: string;
@@ -190,7 +191,8 @@ export const mapResponseToToolResult = async (res: Response): Promise<ToolResult
   let parsed: unknown;
 
   if (isJson(res)) {
-    parsed = await res.json().catch(() => undefined);
+    const raw = await res.json().catch(() => undefined);
+    parsed = raw === undefined ? undefined : redactSensitive(raw);
     textBody = JSON.stringify(parsed, null, 2) ?? "";
   } else {
     textBody = await res.text();
