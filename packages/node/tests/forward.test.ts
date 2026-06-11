@@ -276,6 +276,35 @@ describe("forwardToUpstream", () => {
     expect(result._meta?.rpcCode).toBe(-32001);
   });
 
+  it("redacts cleartext VM password from instances_list-shaped upstream responses", async () => {
+    mockFetch.mockResolvedValueOnce(
+      okJson({
+        runningInstances: [
+          {
+            uuid: "6b1af135-42f2-4336-8412-58b5f676e724",
+            name: "nginx-reverse-proxy",
+            ip: "216.81.248.108",
+            username: "Ubuntu",
+            password: "test-leak-sentinel-xyz",
+            status: "Running",
+          },
+        ],
+      }),
+    );
+    const result = await forwardToUpstream(
+      tool({ upstream: { method: "GET", path: "/api/v1/instance" } }),
+      {},
+      "Bearer t",
+      "https://upstream.example.com",
+    );
+    expect(JSON.stringify(result)).not.toContain("test-leak-sentinel-xyz");
+    const structured = result.structuredContent as {
+      runningInstances: { password: string; ip: string }[];
+    };
+    expect(structured.runningInstances[0]!.password).toBe("[redacted]");
+    expect(structured.runningInstances[0]!.ip).toBe("216.81.248.108");
+  });
+
   it("returns an internal-error result when fetch throws (network failure)", async () => {
     mockFetch.mockRejectedValueOnce(new Error("ECONNREFUSED"));
     const result = await forwardToUpstream(

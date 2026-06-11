@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] — 2026-06-08
+
+### Security
+
+- **Redact cleartext VM credentials from `instances_list` and `instances_get` tool results.** Both tools advertised in their descriptions that "sensitive credentials (e.g. cleartext VM password) are redacted in the response," but the runtime forwarded the upstream API payload verbatim — any caller of either tool received the live VM password as a top-level `password` field. Both the npm and PyPI packages now deep-scrub any JSON value at a key named `password` and replace it with the sentinel `"[redacted]"` before returning. Operators of any instance whose details flowed through `massed-compute-mcp@1.0.2` (or earlier) in a context that retained tool results should rotate the affected VM passwords.
+
 ## [1.0.2] — 2026-05-19
 
 ### Fixed

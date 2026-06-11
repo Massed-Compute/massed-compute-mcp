@@ -13,6 +13,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 from .config import resolve_auth
+from .redact import redact_sensitive
 from .tools import TOOLS
 
 from . import __version__ as SERVER_VERSION
@@ -101,7 +102,7 @@ async def _forward(tool: dict, args: dict, auth_header: str, base_url: str) -> l
     is_json = "application/json" in (res.headers.get("Content-Type") or "").lower()
     if is_json:
         try:
-            parsed = res.json()
+            parsed = redact_sensitive(res.json())
             text_body = json.dumps(parsed, indent=2)
         except json.JSONDecodeError:
             text_body = res.text
