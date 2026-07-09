@@ -1,0 +1,66 @@
+name: SAST
+
+on:
+  pull_request:
+    branches: [main, feat/registry-publish]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: sast-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+
+      - name: Run semgrep
+        run: semgrep scan --config auto --error --json --output semgrep.json .
+
+      - name: Write summary
+        if: always()
+        run: |
+          {
+            echo "## Semgrep SAST"
+            if [ ! -s semgrep.json ]; then
+              echo "No findings."
+            else
+              count=$(python3 -c "import json; print(len(json.load(open('semgrep.json')).get('results',[])))" 2>/dev/null || echo "?")
+              if [ "$count" = "0" ]; then
+                echo "No findings."
+              else
+                echo "$count finding(s). See job log for details."
+                echo ""
+                echo '```'
+                python3 -c "
+          import json, sys
+          data = json.load(open('semgrep.json'))
+          for r in data.get('results', [])[:20]:
+              path = r.get('path','?')
+              line = r.get('start',{}).get('line','?')
+              rule = r.get('check_id','?').split('.')[-1]
+              msg = r.get('extra',{}).get('message','').split('\n')[0][:120]
+              print(f'{path}:{line}  [{rule}]  {msg}')
+          if len(data.get('results',[])) > 20:
+              print(f'... and {len(data[\"results\"])-20} more (see full log)')
+          "
+                echo '```'
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v7 # nosemgrep: github-actions-mutable-action-tag
+        with:
+          name: semgrep-results-${{ github.run_id }}
+          path: semgrep.json
+          if-no-files-found: warn
