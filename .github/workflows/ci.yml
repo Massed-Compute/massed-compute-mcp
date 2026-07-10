@@ -108,6 +108,8 @@ jobs:
       - uses: actions/setup-python@v5 # nosemgrep: github-actions-mutable-action-tag
         with:
           python-version: "3.12"
+      - name: Copy README for hatchling metadata
+        run: cp README.md packages/python/README.md
       - name: Install pip-audit and production deps
         run: |
           python -m venv /tmp/prod-env
