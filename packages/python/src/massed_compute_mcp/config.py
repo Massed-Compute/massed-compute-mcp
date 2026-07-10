@@ -68,7 +68,7 @@ def write_config(config: dict) -> None:
     d.mkdir(parents=True, exist_ok=True)
     if sys.platform != "win32":
         try:
-            os.chmod(d, 0o700)
+            os.chmod(d, 0o700)  # nosemgrep: insecure-file-permissions
         except OSError:
             pass
     p = config_path()
