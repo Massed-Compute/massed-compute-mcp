@@ -113,6 +113,7 @@ jobs:
       - name: Install pip-audit and production deps
         run: |
           python -m venv /tmp/prod-env
+          /tmp/prod-env/bin/pip install --upgrade pip
           /tmp/prod-env/bin/pip install pip-audit packages/python/.
       - name: Run pip-audit
         run: |
