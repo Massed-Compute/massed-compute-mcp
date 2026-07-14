@@ -1,0 +1,49 @@
+name: PR Body Validator
+
+on:
+  pull_request:
+    branches: [main, feat/registry-publish]
+    types: [opened, synchronize, reopened, edited]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  pr-body-validator:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate PR body
+        uses: actions/github-script@v9 # nosemgrep: github-actions-mutable-action-tag
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+
+            const checkboxPattern = /- \[x\]/i;
+            if (checkboxPattern.test(body)) {
+              core.setFailed('PR body contains checked reviewer checkboxes. Leave all checkboxes unchecked — the reviewer fills them in.');
+              return;
+            }
+
+            const placeholders = [
+              'Link the Jira / Linear / GitHub issue.',
+              '1-3 sentences: what changes and why.',
+              'Why now? What problem does this solve',
+              'How was this validated?',
+            ];
+
+            const found = placeholders.filter(p => body.includes(p));
+            if (found.length > 0) {
+              core.setFailed(
+                `PR body still contains unfilled template placeholder text:\n${found.map(p => `  - "${p}"`).join('\n')}`
+              );
+              return;
+            }
+
+            const requiredSections = ['## Summary', '## Ticket'];
+            const missing = requiredSections.filter(s => !body.includes(s));
+            if (missing.length > 0) {
+              core.setFailed(`PR body is missing required sections: ${missing.join(', ')}`);
+              return;
+            }
+
+            console.log('PR body validation passed.');

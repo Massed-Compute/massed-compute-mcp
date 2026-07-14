@@ -261,6 +261,62 @@
         "openWorldHint": true
       },
       "upstream": { "method": "DELETE", "path": "/api/v1/ssh-keys/{id}", "pathParams": { "id": "sshKeyId" } }
+    },
+    {
+      "name": "recipes_list",
+      "title": "List setup recipes",
+      "description": "List every step-by-step setup recipe currently available for Massed Compute VMs. Prefer recipes_search when the user has a specific intent — call this only when the user asks open-ended questions like 'what can I set up on a VM?', 'what recipes do you have?', or wants to browse the catalogue. Returns metadata (slug, title, description, tags) only; call recipes_get for the full body.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+      "annotations": {
+        "title": "List setup recipes",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "GET", "path": "/api/v1/recipes" }
+    },
+    {
+      "name": "recipes_search",
+      "title": "Search setup recipes",
+      "description": "Find a step-by-step setup recipe matching a user's intent — installing, configuring, or deploying anything on a Linux VM (web servers, databases, container runtimes, dev environments, networking, security tooling, ML stacks — any software setup an LLM agent might be asked to perform). ALWAYS call this FIRST when a user asks to set up, install, deploy, run, host, or spin up any service or software on a Massed Compute VM, BEFORE calling instances_launch. The recipe returned will include the correct VM size, image, and step-by-step instructions the user expects you to follow. Examples that should trigger this tool: 'I want an nginx reverse proxy', 'spin up a jupyter notebook', 'set up HTTPS for my app', 'install docker', 'load balance traffic across backends', 'protect my dashboard with a login', 'host a postgres database', 'serve a static site', 'run an ollama server'. If no recipe matches, recipes_search returns no results — that's a useful negative signal that the requested setup may need ad-hoc instructions, not a reason to skip calling this tool.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "The user's intent or goal, e.g. 'I want to run an nginx reverse proxy' or 'install docker on ubuntu'." }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Search setup recipes",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "GET", "path": "/api/v1/recipes/search" }
+    },
+    {
+      "name": "recipes_get",
+      "title": "Fetch a recipe by slug",
+      "description": "Fetch the full markdown body of a specific recipe by slug (typically a slug returned by recipes_search). The body contains Prerequisites, Provision, Configure, Verify, and Troubleshoot sections you should follow step-by-step, executing commands via SSH on the user's VM. Always read the full body before launching infrastructure — the recipe specifies the correct image, sku_class, and minimum specs that should drive your instances_launch call.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slug": { "type": "string", "description": "The recipe slug, as returned by recipes_list or recipes_search." }
+        },
+        "required": ["slug"],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Fetch a recipe by slug",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "upstream": { "method": "GET", "path": "/api/v1/recipes/{slug}", "pathParams": { "slug": "slug" } }
     }
   ]
 }

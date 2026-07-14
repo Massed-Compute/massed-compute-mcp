@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, feat/registry-publish]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-node:
+    name: Build (Node)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/node/package-lock.json
+      - name: Install deps
+        working-directory: packages/node
+        run: npm ci
+      - name: Build
+        working-directory: packages/node
+        run: npm run build
+      - name: Write build summary
+        if: always()
+        run: |
+          {
+            echo "## Node build"
+            echo "Build step completed. Check job log for details."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-python:
+    name: Build (Python)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5 # nosemgrep: github-actions-mutable-action-tag
+        with:
+          python-version: "3.12"
+      - name: Sync tools spec
+        run: node scripts/sync-tools.mjs
+      - name: Build wheel
+        working-directory: packages/python
+        run: |
+          pip install --upgrade build
+          python -m build
+      - name: Write build summary
+        if: always()
+        run: |
+          {
+            echo "## Python build"
+            echo "Build step completed. Check job log for details."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  audit-node:
+    name: Audit (npm)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/node/package-lock.json
+      - name: Install deps
+        working-directory: packages/node
+        run: npm ci
+      - name: Run npm audit
+        working-directory: packages/node
+        run: |
+          set +e
+          npm audit --omit=dev --audit-level=high --json > audit.json
+          status=$?
+          set -e
+          {
+            echo "## npm audit (production deps, level=high)"
+            if [ "$status" -eq 0 ]; then
+              echo "No high/critical advisories."
+            else
+              echo "High/critical advisories found:"
+              echo ""
+              echo '```json'
+              jq '{vulnerabilities: .metadata.vulnerabilities}' audit.json 2>/dev/null || cat audit.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+  audit-python:
+    name: Audit (pip)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/setup-python@v5 # nosemgrep: github-actions-mutable-action-tag
+        with:
+          python-version: "3.12"
+      - name: Copy README for hatchling metadata
+        run: cp README.md packages/python/README.md
+      - name: Install pip-audit and production deps
+        run: |
+          python -m venv /tmp/prod-env
+          /tmp/prod-env/bin/pip install --upgrade pip
+          /tmp/prod-env/bin/pip install pip-audit packages/python/.
+      - name: Run pip-audit
+        run: |
+          set +e
+          /tmp/prod-env/bin/pip-audit --local --format=json > audit.json 2>&1
+          status=$?
+          set -e
+          {
+            echo "## pip-audit (production deps)"
+            if [ "$status" -eq 0 ]; then
+              echo "No advisories found."
+            else
+              echo "Advisories found:"
+              echo ""
+              echo '```json'
+              cat audit.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+  secrets:
+    name: Secrets scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+            | tar xz -C /usr/local/bin gitleaks
+      - name: Run gitleaks (diff only)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gitleaks detect --log-opts="${{ github.event.pull_request.base.sha }}..HEAD" --verbose
+          else
+            gitleaks detect --verbose
+          fi

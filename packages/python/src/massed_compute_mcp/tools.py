@@ -4,7 +4,7 @@ canonical tools.json at the repo root by scripts/sync-tools.mjs."""
 from __future__ import annotations
 
 import json
-from importlib import resources
+from importlib import resources  # nosemgrep: python37-compatibility-importlib2
 from typing import Any, TypedDict
 
 
