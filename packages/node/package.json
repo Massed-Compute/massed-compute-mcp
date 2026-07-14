@@ -58,7 +58,7 @@
     "@types/node": "^20",
     "msw": "^2",
     "ts-node": "^10",
-    "typescript": "^5",
+    "typescript": "^6",
     "vitest": "^1"
   }
 }
