@@ -5,8 +5,8 @@ from __future__ import annotations
 import sys
 
 from ..config import config_path, resolve_auth
-from ..tools import TOOLS
 from ..upstream import validate_api_key
+from .tools_list import fetch_tool_catalog, format_tool_line
 
 
 def _mask(key: str) -> str:
@@ -55,21 +55,19 @@ def run_doctor(_argv: list[str]) -> int:
         return 4
     print()
 
-    print(f"Tool catalog ({len(TOOLS)} total)")
-    print("─────────────")
-    for t in TOOLS:
-        ann = t.get("annotations") or {}
-        if ann.get("destructiveHint"):
-            mark = "⚠ destructive"
-        elif ann.get("readOnlyHint"):
-            mark = "  read-only"
-        else:
-            mark = "  mutates"
-        print(f"  {mark}  {t['name']:<30} {t.get('title', '')}")
-    print()
-    print(
-        "Note: tools requiring full-access keys will return 403 to read-only keys at call time."
-    )
+    try:
+        tools = fetch_tool_catalog()
+        print(f"Tool catalog ({len(tools)} total, live from the hosted MCP endpoint)")
+        print("─────────────")
+        for t in tools:
+            print(format_tool_line(t))
+        print()
+        print(
+            "Note: the catalog is the same for every key; mutating tools reject read-only keys at call time."
+        )
+    except Exception as err:
+        print("Tool catalog: could not fetch from the hosted MCP endpoint.")
+        print(f"  {err}")
     print()
 
     print("Client wiring")

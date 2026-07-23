@@ -51,8 +51,8 @@ jobs:
       - uses: actions/setup-python@v5 # nosemgrep: github-actions-mutable-action-tag
         with:
           python-version: "3.12"
-      - name: Sync tools spec
-        run: node scripts/sync-tools.mjs
+      - name: Sync README/LICENSE into package
+        run: node scripts/sync-docs.mjs
       - name: Build wheel
         working-directory: packages/python
         run: |

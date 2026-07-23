@@ -17,7 +17,7 @@ import { runUninstallClient } from "./commands/uninstall-client.js";
 import { runTools } from "./commands/tools-list.js";
 import { runConfigShow } from "./commands/config-show.js";
 import { runServer } from "./commands/server.js";
-import { MCP_SERVER_VERSION } from "./server-card.js";
+import { MCP_SERVER_VERSION } from "./version.js";
 import { setCliOverride } from "./config.js";
 
 const HELP = `massed-compute-mcp v${MCP_SERVER_VERSION}
@@ -50,7 +50,8 @@ COMMANDS
   uninstall-client <id>   Remove this server from a client config (creates a
                           timestamped backup first).
   logout                  Delete the stored API key.
-  tools [--json]          Print the tool catalog (does not call the upstream).
+  tools [--json]          Fetch and print the live tool catalog from the
+                          hosted MCP endpoint.
   version                 Print the version.
   help                    Show this message.
 
@@ -77,8 +78,7 @@ EXAMPLES
  * Returns the remaining args (subcommand + its options) untouched.
  *
  * We do this manually rather than pulling in commander/yargs because the
- * runtime dep tree must stay at just `@modelcontextprotocol/sdk` for
- * supply-chain reasons.
+ * runtime dep tree must stay empty for supply-chain reasons.
  */
 const extractGlobalFlags = (argv: string[]): { token?: string; baseUrl?: string; rest: string[] } => {
   const rest: string[] = [];

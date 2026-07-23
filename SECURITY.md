@@ -45,7 +45,7 @@ We aim to acknowledge reports within **2 business days** and to ship a fix or ha
 - The API key lives only in our `0600` config file, **never** copied into the MCP client's own config when you run `install-client`. The MCP client config holds only `{ "command": "massed-compute-mcp" }`.
 - Tool calls have a 30-second timeout and a 5 MiB response cap.
 - Atomic temp-file + fsync + rename on config writes prevents corruption-induced credential loss.
-- On startup, `tools-spec.json` is validated for shape; tampering causes the server to refuse to start rather than forward to attacker-controlled paths.
+- The server is a verbatim pass-through with no local tool catalog — there is no on-disk spec whose tampering could redirect calls. All requests go to the single configured endpoint, and credential redaction and key-scope enforcement happen server-side at the hosted endpoint.
 - No runtime telemetry. The wrapper does not phone home, log to third parties, or include analytics.
 
 ## Disclosure timeline

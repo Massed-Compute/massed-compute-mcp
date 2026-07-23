@@ -1,22 +1,21 @@
 /**
  * `massed-compute-mcp server` (also the default command when no subcommand
- * is given) — runs the MCP server over stdio. This is what MCP clients
- * actually spawn; everything else in the CLI is configuration around it.
+ * is given) — a stdio ↔ streamable-HTTP bridge to the hosted MCP endpoint.
+ * This is what MCP clients actually spawn; everything else in the CLI is
+ * configuration around it.
+ *
+ * Every JSON-RPC message on stdin is forwarded verbatim to
+ * `<baseUrl>/api/mcp` with the resolved API key injected as a Bearer
+ * header; upstream responses are written verbatim to stdout. The upstream
+ * owns the tool catalog, schemas, scope enforcement, and redaction.
  *
  * Key resolution uses the shared `resolveAuth` chain (override / env /
  * config). If no key is available, we fail with a pointer to `init` rather
  * than crashing with a generic 401 mid-tool-call.
  */
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-import { TOOLS } from "../tools.js";
-import { dispatchToolCall } from "../dispatch.js";
-import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from "../server-card.js";
+import { createInterface } from "node:readline";
+import { UpstreamSession, parseError, type JsonRpcMessage } from "../proxy.js";
 import { resolveAuth } from "../config.js";
 
 export const runServer = async (_argv: string[]): Promise<number> => {
@@ -27,36 +26,44 @@ export const runServer = async (_argv: string[]): Promise<number> => {
     );
     return 1;
   }
-  const authHeader = `Bearer ${auth.apiKey}`;
 
-  const mcpServer = new Server(
-    { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-    { capabilities: { tools: { listChanged: false } } },
-  );
+  const session = new UpstreamSession({
+    baseUrl: auth.baseUrl,
+    authHeader: `Bearer ${auth.apiKey}`,
+  });
 
-  mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: TOOLS.map((t) => ({
-      name: t.name,
-      title: t.title,
-      description: t.description,
-      inputSchema: t.inputSchema,
-      outputSchema: t.outputSchema,
-      annotations: t.annotations,
-    })),
-  }));
+  const write = (msg: JsonRpcMessage): void => {
+    process.stdout.write(JSON.stringify(msg) + "\n");
+  };
 
-  mcpServer.setRequestHandler(CallToolRequestSchema, async (req) =>
-    dispatchToolCall(
-      req.params.name,
-      (req.params.arguments ?? {}) as Record<string, unknown>,
-      authHeader,
-      auth.baseUrl,
-    ),
-  );
+  const inFlight = new Set<Promise<void>>();
+  const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 
-  const transport = new StdioServerTransport();
-  await mcpServer.connect(transport);
-  // Returning here would let Node exit, but the SDK keeps the event loop
-  // alive on the stdio transport. We resolve only when the client closes.
+  rl.on("line", (line) => {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) return;
+    let message: JsonRpcMessage;
+    try {
+      message = JSON.parse(trimmed);
+    } catch {
+      write(parseError());
+      return;
+    }
+    // Forward concurrently — a slow tools/call must not block pings.
+    // JSON-RPC responses are matched by id, so interleaving is fine.
+    const task = session
+      .forward(message)
+      .then((responses) => responses.forEach(write))
+      .catch((err) => {
+        process.stderr.write(`[mcp] unexpected proxy error: ${err}\n`);
+      })
+      .finally(() => {
+        inFlight.delete(task);
+      });
+    inFlight.add(task);
+  });
+
+  await new Promise<void>((resolve) => rl.on("close", resolve));
+  await Promise.all(inFlight);
   return 0;
 };

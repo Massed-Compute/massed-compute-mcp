@@ -2,7 +2,7 @@
  * Minimal interactive prompts without external dependencies.
  *
  * We deliberately avoid pulling in `@inquirer/prompts` or similar — keeping
- * the runtime dep tree to just `@modelcontextprotocol/sdk` matters because
+ * the runtime dep tree empty matters because
  * this package is global-installed (`npm i -g`) and runs on user machines
  * we don't control. Every transitive dep is supply-chain surface.
  */
