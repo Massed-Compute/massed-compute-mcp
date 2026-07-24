@@ -1,7 +1,7 @@
 {
   "name": "massed-compute-mcp",
-  "version": "1.0.3",
-  "description": "MCP server for the Massed Compute API.",
+  "version": "1.1.0",
+  "description": "Stdio bridge to the hosted Massed Compute MCP endpoint — a verbatim JSON-RPC pass-through.",
   "license": "MIT",
   "author": "Massed Compute",
   "type": "module",
@@ -40,10 +40,8 @@
     "access": "public"
   },
   "scripts": {
-    "sync-tools": "node ../../scripts/sync-tools.mjs",
     "clean": "rm -rf dist",
-    "prebuild": "npm run sync-tools",
-    "build": "npm run clean && tsc && cp src/tools-spec.json dist/tools-spec.json && cp ../../README.md README.md && cp ../../LICENSE LICENSE && chmod +x dist/cli.js",
+    "build": "npm run clean && tsc && cp ../../README.md README.md && cp ../../LICENSE LICENSE && chmod +x dist/cli.js",
     "pretest": "npm run build",
     "prepublishOnly": "npm run build && npm test",
     "start": "node dist/cli.js server",
@@ -51,13 +49,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^20",
-    "msw": "^2",
-    "ts-node": "^10",
     "typescript": "^5",
     "vitest": "^1"
   }

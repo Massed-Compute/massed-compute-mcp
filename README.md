@@ -2,7 +2,7 @@
 
 <!-- mcp-name: io.github.Massed-Compute/mcp -->
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI assistants — Claude, Cursor, Codex, ChatGPT, and other MCP-compatible clients — interact with your [Massed Compute](https://vm.massedcompute.com) account: browse GPU inventory, launch and manage VMs, audit billing.
+A [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI assistants — Claude, Cursor, Codex, ChatGPT, and other MCP-compatible clients — interact with your [Massed Compute](https://vm.massedcompute.com) account: browse GPU inventory, launch and manage VMs, audit billing, discover setup recipes.
 
 ## Contents
 
@@ -16,24 +16,13 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI 
 
 ## Overview
 
-The server exposes 14 tools that map 1:1 to documented `/api/v1/*` endpoints — no internal services, no undocumented calls. Issue a read-only key for analysis-only assistants and destructive tools (launch, restart, terminate, SSH-key changes) are hidden from the catalog entirely. Works with Claude Code, Claude Desktop, Cursor, and Codex.
+The packages published from this repo are a **verbatim proxy of the public MCP endpoint** at `https://vm.massedcompute.com/api/mcp` — zero added surface. Every JSON-RPC message (`initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `ping`, …) is forwarded unchanged with your stored API key injected as a Bearer header, and responses come back unchanged. Nothing is added, renamed, filtered, or rewritten on the way through:
 
-| Tool | Required key | Returns |
-|---|---|---|
-| `gpu_inventory_list` | read-only | GPU configurations, pricing, regional capacity |
-| `images_list` | read-only | VM image catalog |
-| `instances_list` | read-only | Your running VM instances |
-| `instances_get` | read-only | A single instance by UUID |
-| `instances_launch` | full | Newly-launched instance details (incurs cost) |
-| `instances_restart` | full | Restart confirmation |
-| `instances_terminate` | full | Termination confirmation (destructive) |
-| `coupon_information` | read-only | Coupon discount terms |
-| `coupon_accepted_products` | read-only | Products a coupon applies to |
-| `account_token_validation` | read-only | Token validity status |
-| `account_billing` | read-only | Billing settings, recharge configuration |
-| `ssh_keys_list` | read-only | Your SSH keys |
-| `ssh_keys_create` | full | Newly-created key details |
-| `ssh_keys_delete` | full | Deletion confirmation (destructive) |
+- **The hosted endpoint owns the catalog.** Tools, resources, schemas, and descriptions come from the live endpoint — the local package never goes stale when new capabilities (like setup recipes) ship upstream.
+- **The hosted endpoint owns security.** Key-scope enforcement (read-only keys hide destructive tools) and credential redaction happen server-side, identically for every client.
+- **What the local package adds is exactly what a stdio client needs**: a stdio↔streamable-HTTP bridge, OS-conventional storage for your API key (`0600` on POSIX), and one-shot client wiring via `init`.
+
+Issue a read-only key for analysis-only assistants and the endpoint rejects destructive tool calls (launch, restart, terminate, SSH-key changes) at call time. Works with Claude Code, Claude Desktop, Cursor, and Codex. Run `massed-compute-mcp tools` to print the live catalog — GPU inventory, VM images, instance lifecycle, coupons, billing, SSH keys, and setup recipes.
 
 Beyond raw tools, Massed Compute publishes [Agent Skills](https://vm-docs.massedcompute.com/docs/mcp/skills) — markdown workflow templates for common operations like GPU selection and cost auditing. Full docs at [vm-docs.massedcompute.com/docs/category/mcp](https://vm-docs.massedcompute.com/docs/category/mcp).
 
@@ -50,7 +39,7 @@ Open [vm.massedcompute.com/settings/api](https://vm.massedcompute.com/settings/a
 
 ### Hosted endpoint
 
-Same 14 tools, same API key, nothing to install. Pick the snippet for your client:
+The local packages proxy this endpoint verbatim, so pointing your client straight at it gives you the identical catalog with nothing to install. Pick the snippet for your client:
 
 **Claude Code**
 
@@ -168,7 +157,7 @@ massed-compute-mcp doctor
 | `massed-compute-mcp uninstall-client <id>` | Remove our entry from a client config |
 | `massed-compute-mcp config show` | Print resolved config path, masked key, resolution chain |
 | `massed-compute-mcp logout` | Delete the stored API key |
-| `massed-compute-mcp tools [--json]` | Print the tool catalog (no upstream call) |
+| `massed-compute-mcp tools [--json]` | Fetch and print the live tool catalog from the hosted endpoint |
 | `massed-compute-mcp version` | Print the version |
 
 ## Key resolution

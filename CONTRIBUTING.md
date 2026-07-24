@@ -1,13 +1,13 @@
 # Contributing
 
-Thanks for taking the time to contribute. This repo is a monorepo containing the Massed Compute MCP wrapper in two languages (Node/TypeScript and Python), driven from a shared `tools.json` spec.
+Thanks for taking the time to contribute. This repo is a monorepo containing the Massed Compute MCP wrapper in two languages (Node/TypeScript and Python). Each package is a verbatim JSON-RPC pass-through to the hosted MCP endpoint at `https://vm.massedcompute.com/api/mcp` — there is no local tool catalog to maintain.
 
 ## Development setup
 
 ```bash
 git clone https://github.com/Massed-Compute/massed-compute-mcp
 cd massed-compute-mcp
-npm run sync-tools          # generates per-package tools-spec.json + copies README/LICENSE
+npm run sync-docs           # copies the repo-root README/LICENSE into each package
 ```
 
 ### Node package
@@ -16,7 +16,7 @@ npm run sync-tools          # generates per-package tools-spec.json + copies REA
 cd packages/node
 npm ci
 npm run build
-npm test                    # vitest, 73+ tests
+npm test                    # vitest, 52 tests
 node dist/cli.js help
 ```
 
@@ -26,7 +26,7 @@ node dist/cli.js help
 cd packages/python
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest tests/     # 40+ tests
+.venv/bin/pytest tests/     # 44 tests
 .venv/bin/massed-compute-mcp help
 ```
 
@@ -35,28 +35,16 @@ python -m venv .venv
 From the repo root:
 
 ```bash
-npm test                    # runs sync-tools + node tests + python tests + contract test
+npm test                    # runs sync-docs + node tests + python tests + hosted smoke test
 ```
 
-## Tool spec
+## The pass-through contract
 
-`tools.json` at the repo root is the single source of truth for the 14-tool catalog. `scripts/sync-tools.mjs` copies it into each package's source tree (`packages/<lang>/src/.../tools-spec.json`) at build time. Edits to the per-package copies are wiped — only edit `tools.json`.
+The stdio server forwards every JSON-RPC message verbatim to the hosted endpoint and relays responses verbatim. The only additions are transport-level: the stored API key as a Bearer header, `MCP-Protocol-Version` / `Mcp-Session-Id` bookkeeping, a 30 s per-request timeout, and a 5 MiB response cap. Keep it that way — do not add code that inspects, filters, or rewrites message payloads. Tools, schemas, scope enforcement, and redaction are all owned by the hosted endpoint.
 
-`scripts/contract-test.mjs` runs nightly and asserts that:
+`scripts/smoke-test.mjs` runs nightly and asserts the hosted endpoint still answers `initialize` and returns a non-empty `tools/list`. Adding or changing tools happens in the service that backs the hosted endpoint, not in this repo.
 
-1. `tools.json` matches every per-package generated spec, and
-2. Both match the live hosted endpoint at `https://vm.massedcompute.com/api/mcp`.
-
-A drifted spec fails CI loudly. Fix by editing `tools.json` and running `npm run sync-tools`.
-
-## Adding or changing a tool
-
-1. Edit `tools.json` at the repo root.
-2. Run `npm run sync-tools` to propagate.
-3. Update `packages/node/tests/tools.test.ts` and `packages/python/tests/test_tools.py` if structural expectations change.
-4. Open a PR.
-
-The `tests/tools.test.ts` obfuscation lint (which forbids internal terms like `vm-marketplace` from tool descriptions) is load-bearing — every tool description ends up in users' AI assistant contexts. Don't bypass it.
+The `tests/dist-leak.test.ts` obfuscation lint (which forbids internal service names from shipped artifacts) is load-bearing — don't bypass it.
 
 ## Adding an MCP client
 

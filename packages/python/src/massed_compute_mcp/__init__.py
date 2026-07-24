@@ -1,10 +1,8 @@
-"""Massed Compute MCP — a thin Model Context Protocol wrapper around the
-public Massed Compute API. Exposes 14 tools that map 1:1 to documented
-operations at https://vm-docs.massedcompute.com/api/v1."""
+"""Massed Compute MCP — a stdio bridge that forwards Model Context Protocol
+JSON-RPC verbatim to the hosted endpoint at
+https://vm.massedcompute.com/api/mcp, injecting your stored API key."""
 
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
-
-from .tools import TOOLS, TOOL_SPEC_VERSION
 
 # Single source of truth: pyproject.toml's [project] version, read via
 # importlib.metadata. The fallback covers the rare case where the package
@@ -15,4 +13,4 @@ try:
 except PackageNotFoundError:  # pragma: no cover - dev-checkout path
     __version__ = "0.0.0+local"
 
-__all__ = ["TOOLS", "TOOL_SPEC_VERSION", "__version__"]
+__all__ = ["__version__"]

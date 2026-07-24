@@ -8,9 +8,9 @@
  */
 
 import { configPath, resolveAuth } from "../config.js";
-import { TOOLS } from "../tools.js";
-import { MCP_SERVER_VERSION } from "../server-card.js";
+import { MCP_SERVER_VERSION } from "../version.js";
 import { validateApiKey, ValidationOutcome } from "../upstream.js";
+import { fetchToolCatalog, formatToolLine } from "./tools-list.js";
 
 const mask = (key: string): string => {
   if (key.length <= 8) return "***";
@@ -57,18 +57,17 @@ export const runDoctor = async (_argv: string[]): Promise<number> => {
   }
   console.log("");
 
-  console.log(`Tool catalog (${TOOLS.length} total)`);
-  console.log("─────────────");
-  for (const t of TOOLS) {
-    const mark = t.annotations?.destructiveHint
-      ? "⚠ destructive"
-      : t.annotations?.readOnlyHint
-        ? "  read-only"
-        : "  mutates";
-    console.log(`  ${mark}  ${t.name.padEnd(30)} ${t.title}`);
+  try {
+    const tools = await fetchToolCatalog();
+    console.log(`Tool catalog (${tools.length} total, live from the hosted MCP endpoint)`);
+    console.log("─────────────");
+    for (const t of tools) console.log(formatToolLine(t));
+    console.log("");
+    console.log("Note: the catalog is the same for every key; mutating tools reject read-only keys at call time.");
+  } catch (err) {
+    console.log("Tool catalog: could not fetch from the hosted MCP endpoint.");
+    console.log(`  ${err instanceof Error ? err.message : String(err)}`);
   }
-  console.log("");
-  console.log("Note: tools requiring full-access keys will return 403 to read-only keys at call time.");
   console.log("");
 
   console.log("Client wiring");

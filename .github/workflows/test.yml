@@ -5,8 +5,8 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # Nightly contract test — catches drift between our spec and the hosted
-    # endpoint at vm.massedcompute.com/api/mcp even when nothing has merged.
+    # Nightly smoke test — catches regressions in the hosted endpoint at
+    # vm.massedcompute.com/api/mcp even when nothing has merged.
     - cron: "0 7 * * *"
 
 permissions:
@@ -58,19 +58,18 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - name: Sync tools.json into package
+      - name: Sync README/LICENSE into package
         working-directory: .
-        run: node scripts/sync-tools.mjs
+        run: node scripts/sync-docs.mjs
       - run: pip install -e ".[dev]"
       - run: pytest tests/
 
-  contract:
-    name: contract test (local + hosted)
+  smoke:
+    name: smoke test (hosted endpoint)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4 # nosemgrep: github-actions-mutable-action-tag
       - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
         with:
           node-version: "20"
-      - run: node scripts/sync-tools.mjs
-      - run: node scripts/contract-test.mjs
+      - run: node scripts/smoke-test.mjs

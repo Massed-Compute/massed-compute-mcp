@@ -7,7 +7,6 @@ facing CLI operations are explicit subcommands.
 
 from __future__ import annotations
 
-import asyncio
 import sys
 
 from . import __version__
@@ -49,7 +48,8 @@ COMMANDS
   uninstall-client <id>   Remove this server from a client config (creates a
                           timestamped backup first).
   logout                  Delete the stored API key.
-  tools [--json]          Print the tool catalog (does not call the upstream).
+  tools [--json]          Fetch and print the live tool catalog from the
+                          hosted MCP endpoint.
   version                 Print the version.
   help                    Show this message.
 
@@ -147,7 +147,7 @@ def main() -> int:
     if cmd == "server":
         from .server import run as server_run
 
-        return asyncio.run(server_run())
+        return server_run()
     if cmd in ("init", "login"):
         return run_init(rest)
     if cmd == "doctor":
