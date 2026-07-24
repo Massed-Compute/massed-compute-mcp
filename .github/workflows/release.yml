@@ -23,7 +23,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/checkout@v7 # nosemgrep: github-actions-mutable-action-tag
       - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
         with:
           node-version: "22"
@@ -50,7 +50,7 @@ jobs:
       id-token: write
     environment: pypi-publish
     steps:
-      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/checkout@v7 # nosemgrep: github-actions-mutable-action-tag
       - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
         with:
           node-version: "22"
