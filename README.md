@@ -11,6 +11,7 @@ A [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI 
 - [Verifying the connection](#verifying-the-connection)
 - [CLI reference](#cli-reference)
 - [Key resolution](#key-resolution)
+- [Release E2E checklist](docs/e2e/checklist.md)
 - [Resources](#resources)
 - [License](#license)
 
