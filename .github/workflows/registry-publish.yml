@@ -1,0 +1,31 @@
+name: registry-publish
+
+# Publishes server.json to the MCP Registry (registry.modelcontextprotocol.io).
+#
+# Uses GitHub Actions OIDC: the workflow authenticates as this repository's
+# owner (the Massed-Compute org), which grants the io.github.Massed-Compute/*
+# namespace without depending on any individual account's org-membership
+# visibility. Run manually after a release whose server.json should become
+# the registry's current listing.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish-registry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4 # nosemgrep: github-actions-mutable-action-tag
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m).tar.gz" | tar xz mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+      - name: Login via GitHub OIDC
+        run: mcp-publisher login github-oidc
+      - name: Publish server.json to the MCP Registry
+        run: mcp-publisher publish
