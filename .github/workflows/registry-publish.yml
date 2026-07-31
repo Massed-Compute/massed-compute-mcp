@@ -22,8 +22,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4 # nosemgrep: github-actions-mutable-action-tag
       - name: Install mcp-publisher
+        # Release assets are named with Go arch conventions (amd64, arm64) —
+        # not uname -m's x86_64 — so the arch is pinned to the runner's.
         run: |
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m).tar.gz" | tar xz mcp-publisher
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
           sudo mv mcp-publisher /usr/local/bin/
       - name: Login via GitHub OIDC
         run: mcp-publisher login github-oidc
