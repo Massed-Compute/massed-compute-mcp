@@ -42,7 +42,7 @@ npm test                    # runs sync-docs + node tests + python tests + hoste
 
 The stdio server forwards every JSON-RPC message verbatim to the hosted endpoint and relays responses verbatim. The only additions are transport-level: the stored API key as a Bearer header, `MCP-Protocol-Version` / `Mcp-Session-Id` bookkeeping, a 30 s per-request timeout, and a 5 MiB response cap. Keep it that way — do not add code that inspects, filters, or rewrites message payloads. Tools, schemas, scope enforcement, and redaction are all owned by the hosted endpoint.
 
-`scripts/smoke-test.mjs` runs nightly and asserts the hosted endpoint still answers `initialize` and returns a non-empty `tools/list`. Adding or changing tools happens in the service that backs the hosted endpoint, not in this repo.
+`scripts/smoke-test.mjs` runs nightly, unauthenticated, and asserts two things about the hosted endpoint: the public `GET` server card still carries a protocol version and a non-empty tool catalog, and an unauthenticated JSON-RPC `POST` is still rejected with 401. That second check is not paranoia — anonymous `POST` was closed deliberately (MCDEV-482) so that MCP clients see the `WWW-Authenticate` challenge and start OAuth discovery; if it ever answers 200 again, the OAuth flow has quietly stopped being reachable. Adding or changing tools happens in the service that backs the hosted endpoint, not in this repo.
 
 The `tests/dist-leak.test.ts` obfuscation lint (which forbids internal service names from shipped artifacts) is load-bearing — don't bypass it.
 
