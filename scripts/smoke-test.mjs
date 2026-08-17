@@ -31,7 +31,10 @@
  * nothing on the night it is right. Everything else fails closed — a permanent
  * 4xx (a renamed route) or a body that arrives but is not JSON is a contract
  * failure, not an outage, and skipping it would leave the job green forever
- * while both checks quietly stop running.
+ * while both checks quietly stop running. A 403 is on the fail-closed side of
+ * that line even though an edge mitigation can produce one, because a route
+ * that is permanently closed is the case this job exists to catch; the failure
+ * message names the WAF so the likelier cause is checked first.
  */
 
 const HOSTED_URL = process.env.MC_MCP_HOSTED_URL ?? "https://vm.massedcompute.com/api/mcp";
@@ -51,9 +54,21 @@ try {
       console.warn(`[smoke] server card returned HTTP ${res.status} — skipping, treating as an outage.`);
       process.exit(0);
     }
+    // 403 is deliberately *not* transient — a permanently locked-down route is
+    // exactly the silence this job exists to break. But an edge mitigation
+    // against the runner IP has the same shape and is the likelier cause, so
+    // name it here rather than send the reader hunting for a moved route.
+    const contentType = res.headers.get("content-type") ?? "unset";
+    const hint =
+      res.status === 403 || res.status === 404
+        ? `Check the edge before hunting for a moved route: a WAF/bot mitigation against the runner ` +
+          `IP answers 403 with an HTML body, and a deploy window can show a brief 404. The response ` +
+          `content-type here is ${contentType} — if that is HTML rather than JSON, it is mitigation, ` +
+          `not a routing change.`
+        : `Check whether the route moved.`;
     console.error(
       `[smoke] server card returned HTTP ${res.status}. That is not an outage — the public card ` +
-        `is meant to stay reachable at ${HOSTED_URL}; check whether the route moved.`,
+        `is meant to stay reachable at ${HOSTED_URL}. ${hint}`,
     );
     process.exit(2);
   }
@@ -93,6 +108,7 @@ console.log(
 
 // The POST path must stay closed to anonymous callers — see the note above.
 let status;
+let location;
 let wwwAuth;
 try {
   const res = await fetch(HOSTED_URL, {
@@ -114,10 +130,25 @@ try {
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   status = res.status;
+  location = res.headers.get("location") ?? "";
   wwwAuth = res.headers.get("www-authenticate") ?? "";
 } catch (err) {
   console.warn(`[smoke] could not probe the POST path: ${err.message} — skipping that check.`);
   process.exit(0);
+}
+
+// A redirect is still a contract failure — the probe never reached the JSON-RPC
+// path, so the 401 assertion below did not run — but nothing was served
+// anonymously, so it must not be reported as the auth path having reopened.
+if (status >= 300 && status < 400) {
+  console.error(
+    `[smoke] unauthenticated POST was redirected (HTTP ${status} -> ${location || "no Location header"}), ` +
+      `so the JSON-RPC path was never probed and the 401 check did not run. The endpoint has most ` +
+      `likely moved; point MC_MCP_HOSTED_URL at the new location. This is not evidence that ` +
+      `anonymous access reopened — the probe does not follow redirects, because a followed 301/302 ` +
+      `rewrites POST to GET and would land on the server card.`,
+  );
+  process.exit(2);
 }
 
 if (status !== 401) {
@@ -129,7 +160,12 @@ if (status !== 401) {
   process.exit(2);
 }
 
-if (!/^Bearer\b/.test(wwwAuth) || !wwwAuth.includes("resource_metadata=")) {
+// Matched per RFC 7235 rather than by literal shape: `auth-scheme` is
+// case-insensitive, `WWW-Authenticate` is a comma-separated list whose order
+// carries no meaning (and `Headers.get()` joins repeated headers with ", "),
+// and `auth-param` permits whitespace around the `=`. A stricter test would
+// red the nightly on a spec-conformant upstream change while discovery works.
+if (!/(^|,\s*)bearer\b/i.test(wwwAuth) || !/resource_metadata\s*=/i.test(wwwAuth)) {
   console.error(
     `[smoke] unauthenticated POST was rejected with 401 but the WWW-Authenticate challenge is ` +
       `missing or malformed: ${JSON.stringify(wwwAuth)}. Expected a Bearer challenge carrying ` +
