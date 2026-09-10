@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
-      - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/setup-node@v7 # nosemgrep: github-actions-mutable-action-tag
         with:
           node-version: 22
           cache: npm
@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
-      - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/setup-node@v7 # nosemgrep: github-actions-mutable-action-tag
         with:
           node-version: 22
       - uses: actions/setup-python@v5 # nosemgrep: github-actions-mutable-action-tag
@@ -71,7 +71,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
-      - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/setup-node@v7 # nosemgrep: github-actions-mutable-action-tag
         with:
           node-version: 22
           cache: npm
