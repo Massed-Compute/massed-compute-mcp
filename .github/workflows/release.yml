@@ -54,7 +54,7 @@ jobs:
       - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
         with:
           node-version: "22"
-      - uses: actions/setup-python@v5 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/setup-python@v7 # nosemgrep: github-actions-mutable-action-tag
         with:
           python-version: "3.12"
       - name: Sync README + LICENSE into the Python package
