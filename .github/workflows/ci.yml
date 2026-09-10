@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/checkout@v7 # nosemgrep: github-actions-mutable-action-tag
       - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
         with:
           node-version: 22
@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/checkout@v7 # nosemgrep: github-actions-mutable-action-tag
       - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
         with:
           node-version: 22
@@ -70,7 +70,7 @@ jobs:
     name: Audit (npm)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/checkout@v7 # nosemgrep: github-actions-mutable-action-tag
       - uses: actions/setup-node@v4 # nosemgrep: github-actions-mutable-action-tag
         with:
           node-version: 22
@@ -104,7 +104,7 @@ jobs:
     name: Audit (pip)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/checkout@v7 # nosemgrep: github-actions-mutable-action-tag
       - uses: actions/setup-python@v5 # nosemgrep: github-actions-mutable-action-tag
         with:
           python-version: "3.12"
@@ -139,7 +139,7 @@ jobs:
     name: Secrets scan
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6 # nosemgrep: github-actions-mutable-action-tag
+      - uses: actions/checkout@v7 # nosemgrep: github-actions-mutable-action-tag
         with:
           fetch-depth: 0
       - name: Install gitleaks
