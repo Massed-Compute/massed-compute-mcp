@@ -229,6 +229,112 @@ describe("UpstreamSession stale-session recovery", () => {
     expect(out[0]!.error).toBeDefined();
   });
 
+  it("shares one re-init across concurrent 404s and retries all with the new session", async () => {
+    const up = statefulUpstream();
+    const s = session("Bearer k");
+    await s.forward({ jsonrpc: "2.0", id: 0, method: "initialize", params: {} });
+    up.expire();
+    seen = [];
+    const outs = await Promise.all([1, 2, 3].map((id) => s.forward({ jsonrpc: "2.0", id, method: "tools/list" })));
+    // A request issued while the re-init is in flight waits for it.
+    const late = await s.forward({ jsonrpc: "2.0", id: 4, method: "ping" });
+    const methods = seen.map((r) => JSON.parse(r.body).method);
+    expect(methods.filter((m) => m === "initialize")).toHaveLength(1);
+    expect(methods.filter((m) => m === "notifications/initialized")).toHaveLength(1);
+    outs.forEach((out, i) =>
+      expect(out).toEqual([{ jsonrpc: "2.0", id: i + 1, result: { echo: "tools/list", sid: "sid-2" } }]),
+    );
+    expect(late).toEqual([{ jsonrpc: "2.0", id: 4, result: { echo: "ping", sid: "sid-2" } }]);
+    // No request ever went out session-less except the replayed initialize.
+    for (const r of seen) {
+      if (JSON.parse(r.body).method !== "initialize") expect(r.headers["mcp-session-id"]).toBeDefined();
+    }
+  });
+
+  it("requests sent mid-re-init wait and carry the new session id", async () => {
+    const up = statefulUpstream();
+    const s = session("Bearer k");
+    await s.forward({ jsonrpc: "2.0", id: 0, method: "initialize", params: {} });
+    up.expire();
+    seen = [];
+    const first = s.forward({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    // Let the first request's 404 land and the re-init start.
+    while (!seen.some((r) => JSON.parse(r.body).method === "initialize")) await new Promise((r) => setTimeout(r, 1));
+    const mid = await s.forward({ jsonrpc: "2.0", id: 2, method: "ping" });
+    await first;
+    expect(mid).toEqual([{ jsonrpc: "2.0", id: 2, result: { echo: "ping", sid: "sid-2" } }]);
+    expect(seen.filter((r) => JSON.parse(r.body).method === "initialize")).toHaveLength(1);
+  });
+
+  it("surfaces an error and does not retry when re-initialization fails", async () => {
+    const up = statefulUpstream();
+    const s = session("Bearer k");
+    await s.forward({ jsonrpc: "2.0", id: 0, method: "initialize", params: {} });
+    up.expire();
+    const inner = respond;
+    respond = (req, res) => {
+      if (JSON.parse(req.body).method === "initialize") {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("boom");
+        return;
+      }
+      inner(req, res);
+    };
+    seen = [];
+    const outs = await Promise.all([1, 2].map((id) => s.forward({ jsonrpc: "2.0", id, method: "tools/list" })));
+    const methods = seen.map((r) => JSON.parse(r.body).method);
+    expect(methods).toEqual(["tools/list", "tools/list", "initialize"]);
+    outs.forEach((out, i) =>
+      expect(out).toEqual([
+        {
+          jsonrpc: "2.0",
+          id: i + 1,
+          error: { code: -32603, message: "Upstream session expired and re-initialization failed." },
+        },
+      ]),
+    );
+  });
+
+  it("refuses an oversized re-init body and adopts the re-negotiated protocol version", async () => {
+    const up = statefulUpstream();
+    const s = session("Bearer k");
+    await s.forward({ jsonrpc: "2.0", id: 0, method: "initialize", params: {} });
+    up.expire();
+    const inner = respond;
+    let big = true;
+    respond = (req, res) => {
+      const msg = JSON.parse(req.body);
+      if (msg.method === "initialize") {
+        res.writeHead(200, { "Content-Type": "application/json", "Mcp-Session-Id": "sid-new" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: msg.id,
+            result: { protocolVersion: "2025-11-25", pad: big ? "x".repeat(6 * 1024 * 1024) : "" },
+          }),
+        );
+        return;
+      }
+      if (req.headers["mcp-session-id"] === "sid-new") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }));
+        return;
+      }
+      inner(req, res);
+    };
+    const refused = await s.forward({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect((refused[0]!.error as { message: string }).message).toContain("re-initialization failed");
+    // Session was dropped; simulate a fresh session id to re-trigger recovery.
+    big = false;
+    (s as unknown as { sessionId: string }).sessionId = "dead";
+    seen = [];
+    await s.forward({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+    const init = seen.find((r) => JSON.parse(r.body).method === "initialize")!;
+    expect(init.headers["mcp-protocol-version"]).toBeUndefined();
+    expect(seen[seen.length - 1]!.headers["mcp-protocol-version"]).toBe("2025-11-25");
+    expect(seen[seen.length - 1]!.headers["mcp-session-id"]).toBe("sid-new");
+  });
+
   it("passes a 404 without a session id through unchanged", async () => {
     respond = (_req, res) => {
       res.writeHead(404, { "Content-Type": "text/html" });

@@ -278,6 +278,121 @@ def test_stale_session_second_404_does_not_loop():
     assert "error" in out[0]
 
 
+def _methods():
+    return [json.loads(r["body"]).get("method") for r in seen]
+
+
+def test_concurrent_404s_share_one_reinit_and_retry_with_new_session():
+    from concurrent.futures import ThreadPoolExecutor
+
+    state = _stateful_upstream()
+    s = _session()
+    s.forward({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {}})
+    state["live"] = "server-restarted"
+    seen.clear()
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        outs = list(
+            pool.map(lambda i: s.forward({"jsonrpc": "2.0", "id": i, "method": "tools/list"}), [1, 2, 3, 4])
+        )
+    assert _methods().count("initialize") == 1
+    assert _methods().count("notifications/initialized") == 1
+    for i, out in enumerate(outs, start=1):
+        assert out == [{"jsonrpc": "2.0", "id": i, "result": {"echo": "tools/list", "sid": "sid-2"}}]
+    for r in seen:
+        if json.loads(r["body"]).get("method") != "initialize":
+            assert "Mcp-Session-Id" in r["headers"]
+
+
+def test_request_sent_mid_reinit_waits_for_new_session():
+    state = _stateful_upstream()
+    s = _session()
+    s.forward({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {}})
+    state["live"] = "server-restarted"
+    inner = responder
+    gate = threading.Event()
+    started = threading.Event()
+
+    def slow_init(msg, handler):
+        if msg.get("method") == "initialize":
+            started.set()
+            gate.wait(5)
+        inner(msg, handler)
+
+    globals()["responder"] = slow_init
+    seen.clear()
+    first = threading.Thread(target=lambda: s.forward({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))
+    first.start()
+    assert started.wait(5)
+    mid_out: list = []
+    mid = threading.Thread(target=lambda: mid_out.append(s.forward({"jsonrpc": "2.0", "id": 2, "method": "ping"})))
+    mid.start()
+    gate.set()
+    first.join(5)
+    mid.join(5)
+    assert mid_out == [[{"jsonrpc": "2.0", "id": 2, "result": {"echo": "ping", "sid": "sid-2"}}]]
+    assert _methods().count("initialize") == 1
+
+
+def test_failed_reinit_surfaces_error_without_retry():
+    state = _stateful_upstream()
+    s = _session()
+    s.forward({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {}})
+    state["live"] = "server-restarted"
+    inner = responder
+
+    def failing_init(msg, handler):
+        if msg.get("method") == "initialize":
+            handler.reply_json({"oops": True}, status=500)
+            return
+        inner(msg, handler)
+
+    globals()["responder"] = failing_init
+    seen.clear()
+    out = s.forward({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    assert _methods() == ["tools/list", "initialize"]
+    assert out == [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32603, "message": "Upstream session expired and re-initialization failed."},
+        }
+    ]
+
+
+def test_reinit_refuses_oversized_body_and_adopts_new_protocol_version():
+    state = _stateful_upstream()
+    s = _session()
+    s.forward({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {}})
+    state["live"] = "server-restarted"
+    inner = responder
+    opts = {"big": True}
+
+    def renegotiate(msg, handler):
+        if msg.get("method") == "initialize":
+            pad = "x" * (6 * 1024 * 1024) if opts["big"] else ""
+            handler.reply_json(
+                {"jsonrpc": "2.0", "id": msg.get("id"), "result": {"protocolVersion": "2025-11-25", "pad": pad}},
+                headers={"Mcp-Session-Id": "sid-new"},
+            )
+            return
+        if handler.headers.get("Mcp-Session-Id") == "sid-new":
+            handler.reply_json({"jsonrpc": "2.0", "id": msg.get("id"), "result": {}})
+            return
+        inner(msg, handler)
+
+    globals()["responder"] = renegotiate
+    refused = s.forward({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    assert "re-initialization failed" in refused[0]["error"]["message"]
+    opts["big"] = False
+    s._session_id = "dead"
+    seen.clear()
+    s.forward({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    init = next(r for r in seen if json.loads(r["body"]).get("method") == "initialize")
+    assert "MCP-Protocol-Version" not in init["headers"]
+    assert seen[-1]["headers"]["MCP-Protocol-Version"] == "2025-11-25"
+    assert seen[-1]["headers"]["Mcp-Session-Id"] == "sid-new"
+
+
 def test_plain_404_without_session_passes_through():
     global responder
 

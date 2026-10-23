@@ -71,6 +71,29 @@ def _parse_sse_messages(body: str) -> list[dict[str, Any]]:
     return out
 
 
+def _read_capped(res: httpx.Response) -> str | None:
+    """Return the body, or None if it exceeds MAX_RESPONSE_BYTES (by declared
+    Content-Length or actual size)."""
+    declared = res.headers.get("Content-Length")
+    if declared and declared.isdigit() and int(declared) > MAX_RESPONSE_BYTES:
+        return None
+    body = res.text
+    return None if len(body) > MAX_RESPONSE_BYTES else body
+
+
+def _parse_body(body: str, content_type: str) -> list[dict[str, Any]]:
+    """Parse a JSON or SSE body into JSON-RPC messages (non-JSON-RPC -> [])."""
+    if "text/event-stream" in content_type:
+        return _parse_sse_messages(body)
+    try:
+        parsed = json.loads(body) if body else None
+    except json.JSONDecodeError:
+        return []
+    if isinstance(parsed, list):
+        return [m for m in parsed if _is_jsonrpc_message(m)]
+    return [parsed] if _is_jsonrpc_message(parsed) else []
+
+
 class UpstreamSession:
     """One logical client connection to the upstream. Tracks the negotiated
     protocol version (from the ``initialize`` response) and the upstream
@@ -89,6 +112,10 @@ class UpstreamSession:
         # goes stale.
         self._initialize_request: dict[str, Any] | None = None
         self._reinit_counter = 0
+        # Shared in-flight re-initialization: set while one runs, awaited by
+        # every concurrent caller; ``_reinit_ok`` holds its outcome.
+        self._reinit_done: threading.Event | None = None
+        self._reinit_ok = False
         self._lock = threading.Lock()
         self._client = httpx.Client(timeout=REQUEST_TIMEOUT_S)
 
@@ -121,14 +148,46 @@ class UpstreamSession:
                 headers["Mcp-Session-Id"] = self._session_id
         return headers
 
-    def _reinitialize(self) -> bool:
+    def _reinitialize(self, stale_session_id: str) -> bool:
         """The upstream answered 404 to a request carrying ``Mcp-Session-Id``:
         per the streamable HTTP spec the session has expired (e.g. server
-        restart). Drop the id and replay the client's original ``initialize``
-        (plus the ``notifications/initialized`` the protocol requires) so the
-        upstream hands out a fresh session. The replayed responses are
-        swallowed — the client already saw its own. Returns True on success.
+        restart). Replay the client's original ``initialize`` (plus the
+        ``notifications/initialized`` the protocol requires) so the upstream
+        hands out a fresh session, and adopt the protocol version it
+        negotiates. The replayed responses are swallowed — the client
+        already saw its own.
+
+        Single-flight: concurrent 404s share one in-flight re-init (the
+        first caller runs it, the rest wait on its event), and requests
+        issued while it runs wait too, so only one upstream session is
+        minted and nothing goes out session-less mid-re-init. Returns True
+        on success.
         """
+        with self._lock:
+            pending = self._reinit_done
+            if pending is None:
+                if self._session_id != stale_session_id:
+                    return True  # another request already recovered
+                pending = threading.Event()
+                self._reinit_done = pending
+                owner = True
+            else:
+                owner = False
+        if not owner:
+            pending.wait()
+            with self._lock:
+                return self._reinit_ok
+        ok = False
+        try:
+            ok = self._do_reinitialize()
+        finally:
+            with self._lock:
+                self._reinit_ok = ok
+                self._reinit_done = None
+            pending.set()
+        return ok
+
+    def _do_reinitialize(self) -> bool:
         with self._lock:
             self._session_id = None
             init_request = self._initialize_request
@@ -138,18 +197,33 @@ class UpstreamSession:
             return False
         init = {**init_request, "id": f"mcp-proxy-reinit-{counter}"}
         try:
-            res = self._client.post(self.endpoint(), headers=self._headers(), content=json.dumps(init))
-            if not res.is_success:
+            # Fresh negotiation: don't send the stale MCP-Protocol-Version.
+            init_headers = self._headers()
+            init_headers.pop("MCP-Protocol-Version", None)
+            res = self._client.post(self.endpoint(), headers=init_headers, content=json.dumps(init))
+            body = _read_capped(res)
+            if not res.is_success or body is None:
                 return False
+            content_type = (res.headers.get("Content-Type") or "").lower()
+            reply = next((m for m in _parse_body(body, content_type) if m.get("id") == init["id"]), None)
+            if reply is None or "error" in reply:
+                return False
+            result = reply.get("result")
+            version = result.get("protocolVersion") if isinstance(result, dict) else None
             new_session_id = res.headers.get("Mcp-Session-Id")
-            if new_session_id:
-                with self._lock:
+            with self._lock:
+                if isinstance(version, str):
+                    self._protocol_version = version
+                if new_session_id:
                     self._session_id = new_session_id
-            self._client.post(
+            # Ack is a notification; its status doesn't gate the retry (a
+            # dead session surfaces as a 404 on the retry itself).
+            ack = self._client.post(
                 self.endpoint(),
                 headers=self._headers(),
                 content=json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
             )
+            _read_capped(ack)
             return True
         except httpx.HTTPError as err:
             sys.stderr.write(f"[mcp] upstream re-initialize failed: {self.endpoint()} {err}\n")
@@ -157,6 +231,13 @@ class UpstreamSession:
 
     def _forward_once(self, message: dict[str, Any], allow_reinit: bool) -> list[dict[str, Any]]:
         is_request = message.get("id") is not None
+
+        # Don't race a re-init: wait for it so this request carries the new id.
+        if message.get("method") != "initialize":
+            with self._lock:
+                pending = self._reinit_done
+            if pending is not None:
+                pending.wait()
 
         headers = self._headers()
         sent_session_id = headers.get("Mcp-Session-Id")
@@ -173,16 +254,25 @@ class UpstreamSession:
             return []
 
         # Stale session: re-initialize once and retry the original message
-        # once. A second 404 (or a 404 with no session id) falls through.
+        # once (shared across concurrent callers). A second 404 (or a 404 with no session id) falls through.
         if (
             res.status_code == 404
             and sent_session_id
             and allow_reinit
             and message.get("method") != "initialize"
         ):
-            # Even if the replay fails, the id is dropped, so the single
-            # retry goes out session-less rather than with the dead id.
-            self._reinitialize()
+            # Shared single-flight re-init. If it fails, surface an error
+            # instead of retrying without a session.
+            if not self._reinitialize(sent_session_id):
+                if is_request:
+                    return [
+                        self._error_response(
+                            message,
+                            RPC_INTERNAL_ERROR,
+                            "Upstream session expired and re-initialization failed.",
+                        )
+                    ]
+                return []
             return self._forward_once(message, allow_reinit=False)
 
         new_session_id = res.headers.get("Mcp-Session-Id")
