@@ -164,6 +164,84 @@ describe("UpstreamSession", () => {
   });
 });
 
+describe("UpstreamSession stale-session recovery", () => {
+  // Upstream that issues session ids on initialize and 404s any request
+  // carrying an id it no longer knows about.
+  const statefulUpstream = (opts: { alwaysStale?: boolean } = {}) => {
+    let counter = 0;
+    let live: string | undefined;
+    respond = (req, res) => {
+      const msg = JSON.parse(req.body);
+      const sid = req.headers["mcp-session-id"] as string | undefined;
+      if (msg.method === "initialize") {
+        live = `sid-${++counter}`;
+        res.writeHead(200, { "Content-Type": "application/json", "Mcp-Session-Id": live });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2025-06-18" } }));
+        return;
+      }
+      if (sid && (opts.alwaysStale || sid !== live)) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "Session not found" } }));
+        return;
+      }
+      if (msg.id === undefined) {
+        res.writeHead(202);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { echo: msg.method, sid } }));
+    };
+    return { expire: () => (live = "server-restarted") };
+  };
+
+  it("re-initializes after a 404 on a stale session and retries the request once", async () => {
+    const up = statefulUpstream();
+    const s = session("Bearer k");
+    const initParams = { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "c", version: "1" } };
+    await s.forward({ jsonrpc: "2.0", id: 0, method: "initialize", params: initParams });
+    up.expire();
+    seen = [];
+    const out = await s.forward({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect(out).toEqual([{ jsonrpc: "2.0", id: 1, result: { echo: "tools/list", sid: "sid-2" } }]);
+    const methods = seen.map((r) => JSON.parse(r.body).method);
+    expect(methods).toEqual(["tools/list", "initialize", "notifications/initialized", "tools/list"]);
+    expect(seen[0]!.headers["mcp-session-id"]).toBe("sid-1");
+    expect(seen[1]!.headers["mcp-session-id"]).toBeUndefined();
+    expect(JSON.parse(seen[1]!.body).params).toEqual(initParams);
+    expect(seen[2]!.headers["mcp-session-id"]).toBe("sid-2");
+    expect(seen[3]!.headers["mcp-session-id"]).toBe("sid-2");
+  });
+
+  it("does not loop when the retry also 404s", async () => {
+    statefulUpstream({ alwaysStale: true });
+    const s = session("Bearer k");
+    await s.forward({ jsonrpc: "2.0", id: 0, method: "initialize", params: {} });
+    seen = [];
+    const out = await s.forward({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect(seen.map((r) => JSON.parse(r.body).method)).toEqual([
+      "tools/list",
+      "initialize",
+      "notifications/initialized",
+      "tools/list",
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.error).toBeDefined();
+  });
+
+  it("passes a 404 without a session id through unchanged", async () => {
+    respond = (_req, res) => {
+      res.writeHead(404, { "Content-Type": "text/html" });
+      res.end("<html>not found</html>");
+    };
+    const out = await session("Bearer k").forward({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+    expect(seen).toHaveLength(1);
+    expect(out).toEqual([
+      { jsonrpc: "2.0", id: 2, error: { code: -32600, message: "Upstream returned HTTP 404 with a non-MCP response." } },
+    ]);
+  });
+});
+
 describe("parseError", () => {
   it("produces a -32700 response with a null id", () => {
     expect(parseError()).toEqual({

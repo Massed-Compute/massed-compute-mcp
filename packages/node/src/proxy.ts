@@ -86,6 +86,9 @@ export interface UpstreamSessionOptions {
 export class UpstreamSession {
   private protocolVersion?: string;
   private sessionId?: string;
+  /** The client's last `initialize` request, replayed if the session goes stale. */
+  private initializeRequest?: JsonRpcMessage;
+  private reinitCounter = 0;
 
   constructor(private readonly opts: UpstreamSessionOptions) {}
 
@@ -99,8 +102,11 @@ export class UpstreamSession {
    * upstream acknowledges with a bodyless 202).
    */
   async forward(message: JsonRpcMessage): Promise<JsonRpcMessage[]> {
-    const isRequest = message.id !== undefined && message.id !== null;
+    if (message.method === "initialize") this.initializeRequest = message;
+    return this.forwardOnce(message, true);
+  }
 
+  private headers(): Record<string, string> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
@@ -108,6 +114,55 @@ export class UpstreamSession {
     if (this.opts.authHeader) headers["Authorization"] = this.opts.authHeader;
     if (this.protocolVersion) headers["MCP-Protocol-Version"] = this.protocolVersion;
     if (this.sessionId) headers["Mcp-Session-Id"] = this.sessionId;
+    return headers;
+  }
+
+  /**
+   * The upstream answered 404 to a request carrying `Mcp-Session-Id`: per
+   * the streamable HTTP spec the session has expired (e.g. server restart).
+   * Drop the id, replay the client's original `initialize` (plus the
+   * `notifications/initialized` the protocol requires) so the upstream
+   * hands out a fresh session. Returns true if re-initialization succeeded.
+   * The replayed responses are swallowed — the client already saw its own.
+   */
+  private async reinitialize(): Promise<boolean> {
+    this.sessionId = undefined;
+    if (!this.initializeRequest) return false;
+    this.reinitCounter += 1;
+    const init: JsonRpcMessage = {
+      ...this.initializeRequest,
+      id: `mcp-proxy-reinit-${this.reinitCounter}`,
+    };
+    try {
+      const res = await fetch(this.endpoint(), {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify(init),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      await res.text();
+      if (!res.ok) return false;
+      const newSessionId = res.headers.get("Mcp-Session-Id");
+      if (newSessionId) this.sessionId = newSessionId;
+      const ack = await fetch(this.endpoint(), {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      await ack.text();
+      return true;
+    } catch (err) {
+      process.stderr.write(`[mcp] upstream re-initialize failed: ${this.endpoint()} ${err}\n`);
+      return false;
+    }
+  }
+
+  private async forwardOnce(message: JsonRpcMessage, allowReinit: boolean): Promise<JsonRpcMessage[]> {
+    const isRequest = message.id !== undefined && message.id !== null;
+
+    const headers = this.headers();
+    const sentSessionId = this.sessionId;
 
     let res: Response;
     try {
@@ -125,6 +180,16 @@ export class UpstreamSession {
       return isRequest
         ? [this.errorResponse(message, RPC_INTERNAL_ERROR, "Upstream fetch failed.")]
         : [];
+    }
+
+    // Stale session: re-initialize once and retry the original message once.
+    // A second 404 (or a 404 with no session id) falls through unchanged.
+    if (res.status === 404 && sentSessionId && allowReinit && message.method !== "initialize") {
+      await res.text().catch(() => undefined);
+      // Even if the replay fails, the id is dropped, so the single retry
+      // goes out session-less rather than with the dead id.
+      await this.reinitialize();
+      return this.forwardOnce(message, false);
     }
 
     const newSessionId = res.headers.get("Mcp-Session-Id");

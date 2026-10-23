@@ -85,6 +85,10 @@ class UpstreamSession:
         self._auth_header = auth_header
         self._protocol_version: str | None = None
         self._session_id: str | None = None
+        # The client's last ``initialize`` request, replayed if the session
+        # goes stale.
+        self._initialize_request: dict[str, Any] | None = None
+        self._reinit_counter = 0
         self._lock = threading.Lock()
         self._client = httpx.Client(timeout=REQUEST_TIMEOUT_S)
 
@@ -98,8 +102,12 @@ class UpstreamSession:
         """Forward one JSON-RPC message verbatim. Returns the JSON-RPC
         messages to relay back to the client (empty for notifications,
         which the upstream acknowledges with a bodyless 202)."""
-        is_request = message.get("id") is not None
+        if message.get("method") == "initialize":
+            with self._lock:
+                self._initialize_request = message
+        return self._forward_once(message, allow_reinit=True)
 
+    def _headers(self) -> dict[str, str]:
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
@@ -111,6 +119,47 @@ class UpstreamSession:
                 headers["MCP-Protocol-Version"] = self._protocol_version
             if self._session_id:
                 headers["Mcp-Session-Id"] = self._session_id
+        return headers
+
+    def _reinitialize(self) -> bool:
+        """The upstream answered 404 to a request carrying ``Mcp-Session-Id``:
+        per the streamable HTTP spec the session has expired (e.g. server
+        restart). Drop the id and replay the client's original ``initialize``
+        (plus the ``notifications/initialized`` the protocol requires) so the
+        upstream hands out a fresh session. The replayed responses are
+        swallowed — the client already saw its own. Returns True on success.
+        """
+        with self._lock:
+            self._session_id = None
+            init_request = self._initialize_request
+            self._reinit_counter += 1
+            counter = self._reinit_counter
+        if init_request is None:
+            return False
+        init = {**init_request, "id": f"mcp-proxy-reinit-{counter}"}
+        try:
+            res = self._client.post(self.endpoint(), headers=self._headers(), content=json.dumps(init))
+            if not res.is_success:
+                return False
+            new_session_id = res.headers.get("Mcp-Session-Id")
+            if new_session_id:
+                with self._lock:
+                    self._session_id = new_session_id
+            self._client.post(
+                self.endpoint(),
+                headers=self._headers(),
+                content=json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            )
+            return True
+        except httpx.HTTPError as err:
+            sys.stderr.write(f"[mcp] upstream re-initialize failed: {self.endpoint()} {err}\n")
+            return False
+
+    def _forward_once(self, message: dict[str, Any], allow_reinit: bool) -> list[dict[str, Any]]:
+        is_request = message.get("id") is not None
+
+        headers = self._headers()
+        sent_session_id = headers.get("Mcp-Session-Id")
 
         try:
             res = self._client.post(self.endpoint(), headers=headers, content=json.dumps(message))
@@ -122,6 +171,19 @@ class UpstreamSession:
             if is_request:
                 return [self._error_response(message, RPC_INTERNAL_ERROR, "Upstream fetch failed.")]
             return []
+
+        # Stale session: re-initialize once and retry the original message
+        # once. A second 404 (or a 404 with no session id) falls through.
+        if (
+            res.status_code == 404
+            and sent_session_id
+            and allow_reinit
+            and message.get("method") != "initialize"
+        ):
+            # Even if the replay fails, the id is dropped, so the single
+            # retry goes out session-less rather than with the dead id.
+            self._reinitialize()
+            return self._forward_once(message, allow_reinit=False)
 
         new_session_id = res.headers.get("Mcp-Session-Id")
         if new_session_id:

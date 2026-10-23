@@ -205,6 +205,102 @@ def test_synthesizes_internal_error_when_unreachable():
     assert out[0]["error"]["code"] == -32603
 
 
+def _stateful_upstream(always_stale: bool = False):
+    """Upstream that issues session ids on initialize and 404s any request
+    carrying an id it no longer knows about."""
+    global responder
+    state = {"counter": 0, "live": None}
+
+    def responder_fn(msg, handler):
+        sid = handler.headers.get("Mcp-Session-Id")
+        if msg.get("method") == "initialize":
+            state["counter"] += 1
+            state["live"] = f"sid-{state['counter']}"
+            handler.reply_json(
+                {"jsonrpc": "2.0", "id": msg.get("id"), "result": {"protocolVersion": "2025-06-18"}},
+                headers={"Mcp-Session-Id": state["live"]},
+            )
+            return
+        if sid and (always_stale or sid != state["live"]):
+            handler.reply_json(
+                {"jsonrpc": "2.0", "id": None, "error": {"code": -32001, "message": "Session not found"}},
+                status=404,
+            )
+            return
+        if msg.get("id") is None:
+            handler.send_response(202)
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return
+        handler.reply_json(
+            {"jsonrpc": "2.0", "id": msg.get("id"), "result": {"echo": msg.get("method"), "sid": sid}}
+        )
+
+    responder = responder_fn
+    return state
+
+
+def test_stale_session_404_reinitializes_and_retries_once():
+    state = _stateful_upstream()
+    s = _session()
+    init_params = {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "c", "version": "1"}}
+    s.forward({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": init_params})
+    state["live"] = "server-restarted"
+    seen.clear()
+    out = s.forward({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    assert out == [{"jsonrpc": "2.0", "id": 1, "result": {"echo": "tools/list", "sid": "sid-2"}}]
+    assert [json.loads(r["body"]).get("method") for r in seen] == [
+        "tools/list",
+        "initialize",
+        "notifications/initialized",
+        "tools/list",
+    ]
+    assert seen[0]["headers"]["Mcp-Session-Id"] == "sid-1"
+    assert "Mcp-Session-Id" not in seen[1]["headers"]
+    assert json.loads(seen[1]["body"])["params"] == init_params
+    assert seen[2]["headers"]["Mcp-Session-Id"] == "sid-2"
+    assert seen[3]["headers"]["Mcp-Session-Id"] == "sid-2"
+
+
+def test_stale_session_second_404_does_not_loop():
+    _stateful_upstream(always_stale=True)
+    s = _session()
+    s.forward({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {}})
+    seen.clear()
+    out = s.forward({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+    assert [json.loads(r["body"]).get("method") for r in seen] == [
+        "tools/list",
+        "initialize",
+        "notifications/initialized",
+        "tools/list",
+    ]
+    assert len(out) == 1
+    assert "error" in out[0]
+
+
+def test_plain_404_without_session_passes_through():
+    global responder
+
+    def responder_fn(_msg, handler):
+        body = b"<html>not found</html>"
+        handler.send_response(404)
+        handler.send_header("Content-Type", "text/html")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.end_headers()
+        handler.wfile.write(body)
+
+    responder = responder_fn
+    out = _session().forward({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    assert len(seen) == 1
+    assert out == [
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "error": {"code": -32600, "message": "Upstream returned HTTP 404 with a non-MCP response."},
+        }
+    ]
+
+
 def test_parse_error_shape():
     assert parse_error() == {
         "jsonrpc": "2.0",
