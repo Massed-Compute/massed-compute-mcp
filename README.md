@@ -95,7 +95,7 @@ Claude Desktop does not yet speak streamable-HTTP MCP, so use [`mcp-remote`](htt
 Install via whichever ecosystem you prefer:
 
 ```bash
-npm install -g massed-compute-mcp     # Node >= 20
+npm install -g massed-compute-mcp     # Node >= 20.19
 # or
 pip install massed-compute-mcp        # Python >= 3.10
 # or
